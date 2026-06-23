@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EuroVelo 17 Tracker — Andermatt to Avignon</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQxQmPgnG8YFvVtmG3YX4IY+6P4sT0=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <style>
+    :root { --bg:#f7f3ec; --card:#fffaf2; --ink:#1d2b24; --muted:#66736c; --accent:#21785a; --line:#e5d8c6; --done:#dff2e8; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--ink); }
+    header { padding:24px; background:linear-gradient(135deg,#173b2e,#2b8a68); color:white; }
+    header h1 { margin:0 0 8px; font-size:clamp(1.8rem,3vw,3rem); }
+    header p { margin:0; max-width:980px; opacity:.92; }
+    .wrap { display:grid; grid-template-columns:430px 1fr; gap:16px; padding:16px; min-height:calc(100vh - 132px); }
+    aside, main { min-width:0; }
+    .panel { background:var(--card); border:1px solid var(--line); border-radius:18px; box-shadow:0 6px 20px rgba(36,28,14,.07); overflow:hidden; }
+    .toolbar { padding:14px; display:flex; flex-wrap:wrap; gap:8px; border-bottom:1px solid var(--line); align-items:center; }
+    button, select { border:1px solid var(--line); background:white; border-radius:999px; padding:9px 12px; font:inherit; color:var(--ink); }
+    button { cursor:pointer; font-weight:650; }
+    button.primary { background:var(--accent); color:white; border-color:transparent; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:12px; }
+    .stat { padding:12px; background:white; border:1px solid var(--line); border-radius:14px; }
+    .stat strong { display:block; font-size:1.35rem; }
+    .stage-list { max-height:68vh; overflow:auto; padding:8px; }
+    .stage { background:white; border:1px solid var(--line); border-radius:16px; padding:12px; margin:8px 0; transition:.18s ease; }
+    .stage.done { background:var(--done); }
+    .stage-top { display:flex; gap:10px; align-items:flex-start; }
+    .stage h3 { margin:0; font-size:1rem; }
+    .meta { color:var(--muted); font-size:.9rem; margin:4px 0 8px; }
+    textarea { width:100%; min-height:92px; border:1px solid var(--line); border-radius:12px; padding:10px; resize:vertical; font:inherit; background:#fffdf9; }
+    .stage-actions { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+    #map { height:calc(100vh - 180px); min-height:520px; width:100%; background:#e8efe9; }
+    .map-note { padding:10px 14px; color:var(--muted); border-top:1px solid var(--line); font-size:.9rem; }
+    .legend { position:absolute; z-index:500; right:18px; top:74px; background:white; padding:10px 12px; border-radius:14px; box-shadow:0 4px 16px rgba(0,0,0,.15); font-size:.9rem; max-width:220px; }
+    .legend label { display:block; margin:5px 0; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#edf5f1; color:#1f6c53; font-size:.78rem; }
+    .small { font-size:.84rem; color:var(--muted); }
+    @media (max-width:950px) { .wrap { grid-template-columns:1fr; } #map { height:70vh; } .stage-list { max-height:none; } .legend { position:static; box-shadow:none; border-top:1px solid var(--line); border-radius:0; max-width:none; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>EuroVelo 17 Tracker</h1>
+  <p>Andermatt → Avignon, split into practical riding days around 80 km where the terrain allows. Tick stages off, write diary notes, and search nearby amenities only when you need them.</p>
+</header>
+<div class="wrap">
+  <aside class="panel">
+    <div class="toolbar">
+      <button class="primary" id="exportBtn">Export diary</button>
+      <button id="resetBtn">Reset ticks/notes</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><strong id="doneCount">0</strong><span>done</span></div>
+      <div class="stat"><strong id="kmDone">0</strong><span>km cycled</span></div>
+      <div class="stat"><strong id="progressPct">0%</strong><span>progress</span></div>
+    </div>
+    <div class="stage-list" id="stageList"></div>
+  </aside>
+  <main class="panel" style="position:relative">
+    <div class="toolbar">
+      <button class="primary" id="locateBtn">Use my location</button>
+      <select id="focusSelect" title="Jump to stage"></select>
+      <button id="amenityBtn">Search amenities in view</button>
+      <button id="clearAmenitiesBtn">Clear amenities</button>
+      <span class="pill" id="amenityStatus">Amenities: not loaded</span>
+    </div>
+    <div class="legend">
+      <label><input type="checkbox" class="layerToggle" data-layer="hotel" checked> Hotels/hostels</label>
+      <label><input type="checkbox" class="layerToggle" data-layer="supermarket" checked> Supermarkets</label>
+      <label><input type="checkbox" class="layerToggle" data-layer="bike" checked> Bike shops</label>
+      <label><input type="checkbox" class="layerToggle" data-layer="pharmacy" checked> Pharmacies</label>
+      <label><input type="checkbox" class="layerToggle" data-layer="cafe"> Cafés/restaurants</label>
+      <label><input type="checkbox" class="layerToggle" data-layer="camp" checked> Campsites</label>
+      <div class="small">Tip: zoom to town level, then search. Cafés are off by default because they create many markers.</div>
+    </div>
+    <div id="map"></div>
+    <div class="map-note">This is a planning tracker, not a turn-by-turn GPX. Amenities use live OpenStreetMap/Overpass data within the visible map area, capped for speed.</div>
+  </main>
+</div>
+<script>
+const stages = [
+  {id:1, from:'Andermatt', to:'Oberwald / Goms', km:55, start:[46.635,8.594], end:[46.534,8.347], note:'Mountain day. Check Furka/rail/pass conditions before riding.'},
+  {id:2, from:'Oberwald / Goms', to:'Brig', km:50, start:[46.534,8.347], end:[46.316,7.987], note:'Shorter valley day after the pass.'},
+  {id:3, from:'Brig', to:'Sion', km:82, start:[46.316,7.987], end:[46.233,7.360]},
+  {id:4, from:'Sion', to:'Martigny / Saint-Maurice', km:64, start:[46.233,7.360], end:[46.218,7.003]},
+  {id:5, from:'Martigny / Saint-Maurice', to:'Lausanne / Morges', km:82, start:[46.218,7.003], end:[46.519,6.633]},
+  {id:6, from:'Lausanne / Morges', to:'Geneva', km:70, start:[46.519,6.633], end:[46.204,6.143]},
+  {id:7, from:'Geneva', to:'Seyssel', km:63, start:[46.204,6.143], end:[45.959,5.836]},
+  {id:8, from:'Seyssel', to:'Chanaz / Belley', km:74, start:[45.959,5.836], end:[45.759,5.688]},
+  {id:9, from:'Chanaz / Belley', to:'Lyon', km:92, start:[45.759,5.688], end:[45.764,4.835]},
+  {id:10, from:'Lyon', to:'Vienne / Condrieu', km:42, start:[45.764,4.835], end:[45.525,4.875], note:'Short recovery/sightseeing day after Lyon.'},
+  {id:11, from:'Vienne / Condrieu', to:'Valence', km:83, start:[45.525,4.875], end:[44.933,4.892]},
+  {id:12, from:'Valence', to:'Montélimar / Viviers', km:78, start:[44.933,4.892], end:[44.482,4.690]},
+  {id:13, from:'Montélimar / Viviers', to:'Orange / Caderousse', km:72, start:[44.482,4.690], end:[44.137,4.808]},
+  {id:14, from:'Orange / Caderousse', to:'Avignon', km:38, start:[44.137,4.808], end:[43.949,4.805], note:'Short finish into Avignon.'}
+];
+const routeWaypoints = [
+  [46.635,8.594],[46.565,8.417],[46.534,8.347],[46.493,8.262],[46.416,8.157],[46.316,7.987],
+  [46.294,7.880],[46.272,7.720],[46.233,7.360],[46.118,7.073],[46.218,7.003],[46.252,6.947],
+  [46.396,6.927],[46.431,6.911],[46.519,6.633],[46.453,6.338],[46.204,6.143],
+  [46.111,5.955],[45.959,5.836],[45.815,5.808],[45.759,5.688],[45.850,5.284],[45.764,4.835],
+  [45.669,4.810],[45.525,4.875],[45.342,4.810],[45.071,4.833],[44.933,4.892],
+  [44.735,4.794],[44.558,4.750],[44.482,4.690],[44.258,4.650],[44.137,4.808],[43.949,4.805]
+];
+const totalKm = stages.reduce((s,x)=>s+x.km,0);
+const storeKey = 'ev17-andermatt-avignon-v2';
+let data = JSON.parse(localStorage.getItem(storeKey) || '{}');
+function save(){ localStorage.setItem(storeKey, JSON.stringify(data)); updateStats(); }
+function updateStats(){
+  const doneStages = stages.filter(s=>data[`done-${s.id}`]);
+  const km = doneStages.reduce((a,s)=>a+s.km,0);
+  document.getElementById('doneCount').textContent = `${doneStages.length}/${stages.length}`;
+  document.getElementById('kmDone').textContent = km;
+  document.getElementById('progressPct').textContent = Math.round(km/totalKm*100)+'%';
+}
+function renderStages(){
+  const list = document.getElementById('stageList');
+  const sel = document.getElementById('focusSelect');
+  list.innerHTML=''; sel.innerHTML='';
+  stages.forEach(s=>{
+    sel.add(new Option(`Stage ${s.id}: ${s.from} → ${s.to}`, s.id));
+    const div = document.createElement('div');
+    div.className = 'stage' + (data[`done-${s.id}`] ? ' done' : '');
+    div.dataset.id = s.id;
+    div.innerHTML = `<div class="stage-top"><input type="checkbox" ${data[`done-${s.id}`]?'checked':''} data-id="${s.id}" class="doneBox"><div><h3>Stage ${s.id}: ${s.from} → ${s.to}</h3><div class="meta">${s.km} km · ${s.note || 'Planned riding day'}</div></div></div><textarea placeholder="Diary notes for this stage/day...">${data[`note-${s.id}`]||''}</textarea><div class="stage-actions"><button data-jump="${s.id}">Show on map</button></div>`;
+    list.appendChild(div);
+  });
+  updateStats();
+}
+const list = document.getElementById('stageList');
+list.addEventListener('change', e=>{
+  if(!e.target.classList.contains('doneBox')) return;
+  data[`done-${e.target.dataset.id}`] = e.target.checked;
+  save();
+  e.target.closest('.stage').classList.toggle('done', e.target.checked);
+});
+list.addEventListener('input', e=>{
+  if(e.target.tagName !== 'TEXTAREA') return;
+  data[`note-${e.target.closest('.stage').dataset.id}`] = e.target.value;
+  save();
+});
+list.addEventListener('click', e=>{ if(e.target.dataset.jump) jumpStage(+e.target.dataset.jump); });
+const canvasRenderer = L.canvas({padding:0.5});
+const map = L.map('map', {preferCanvas:true, zoomAnimation:true, markerZoomAnimation:false}).setView([45.7,5.6],7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, updateWhenIdle:true, updateWhenZooming:false, keepBuffer:2, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+const route = L.polyline(routeWaypoints, {weight:5, opacity:.82, smoothFactor:1.5, renderer:canvasRenderer}).addTo(map);
+const stageLayer = L.layerGroup().addTo(map);
+stages.forEach(s=>{
+  L.circleMarker(s.start, {radius:6, renderer:canvasRenderer}).bindPopup(`<b>Stage ${s.id} start</b><br>${s.from} → ${s.to}<br>${s.km} km`).addTo(stageLayer);
+  L.circleMarker(s.end, {radius:8, renderer:canvasRenderer}).bindPopup(`<b>Stage ${s.id} finish</b><br>${s.to}`).addTo(stageLayer);
+});
+map.fitBounds(route.getBounds(), {padding:[20,20]});
+function jumpStage(id){ const s=stages.find(x=>x.id===id); map.setView(s.end, 12); }
+document.getElementById('focusSelect').addEventListener('change', e=>jumpStage(+e.target.value));
+document.getElementById('locateBtn').addEventListener('click', ()=> map.locate({setView:true, maxZoom:13}));
+map.on('locationfound', e=> L.circleMarker(e.latlng,{radius:9,renderer:canvasRenderer}).addTo(map).bindPopup('You are here').openPopup());
+const amenityLayers = Object.fromEntries(['hotel','supermarket','bike','pharmacy','cafe','camp'].map(k=>[k,L.layerGroup().addTo(map)]));
+document.querySelectorAll('.layerToggle').forEach(cb=>{
+  if(!cb.checked) map.removeLayer(amenityLayers[cb.dataset.layer]);
+  cb.addEventListener('change', e=> e.target.checked ? amenityLayers[e.target.dataset.layer].addTo(map) : map.removeLayer(amenityLayers[e.target.dataset.layer]));
+});
+const qFor = {
+  hotel:'["tourism"~"hotel|hostel|guest_house"]', supermarket:'["shop"="supermarket"]', bike:'["shop"="bicycle"]', pharmacy:'["amenity"="pharmacy"]', cafe:'["amenity"~"cafe|restaurant|fast_food"]', camp:'["tourism"~"camp_site|caravan_site"]'
+};
+const iconFor = {hotel:'🏨', supermarket:'🛒', bike:'🚲', pharmacy:'💊', cafe:'☕', camp:'⛺'};
+const cache = new Map();
+function visibleTypes(){ return [...document.querySelectorAll('.layerToggle:checked')].map(x=>x.dataset.layer); }
+function roundedBBox(){ const b=map.getBounds(); return [b.getSouth(),b.getWest(),b.getNorth(),b.getEast()].map(n=>n.toFixed(3)).join(','); }
+function clearAmenities(){ Object.values(amenityLayers).forEach(l=>l.clearLayers()); document.getElementById('amenityStatus').textContent='Amenities: cleared'; }
+async function loadAmenities(){
+  const z = map.getZoom();
+  if(z < 12){ document.getElementById('amenityStatus').textContent='Zoom in to level 12+'; return; }
+  const types = visibleTypes();
+  if(types.length === 0){ document.getElementById('amenityStatus').textContent='Select a category first'; return; }
+  const status = document.getElementById('amenityStatus');
+  status.textContent = 'Amenities: loading...';
+  clearAmenities();
+  const box = roundedBBox();
+  const key = box + '|' + types.join('-');
+  try{
+    let elements = cache.get(key);
+    if(!elements){
+      const parts = types.map(t=>`node${qFor[t]}(${box});way${qFor[t]}(${box});relation${qFor[t]}(${box});`).join('');
+      const query = `[out:json][timeout:18];(${parts});out center tags 90;`;
+      const res = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body:query});
+      const json = await res.json();
+      elements = json.elements || [];
+      cache.set(key, elements);
+    }
+    let i = 0, added = 0;
+    function addChunk(){
+      const stop = Math.min(i + 20, elements.length);
+      for(; i < stop; i++){
+        const el = elements[i], tags = el.tags || {}, lat = el.lat || el.center?.lat, lon = el.lon || el.center?.lon;
+        if(!lat || !lon) continue;
+        let type = tags.shop==='supermarket'?'supermarket':tags.shop==='bicycle'?'bike':tags.amenity==='pharmacy'?'pharmacy':(['cafe','restaurant','fast_food'].includes(tags.amenity)?'cafe':(['camp_site','caravan_site'].includes(tags.tourism)?'camp':'hotel'));
+        if(!types.includes(type)) continue;
+        L.circleMarker([lat,lon], {radius:5, renderer:canvasRenderer}).bindPopup(`<b>${iconFor[type]} ${tags.name || '(unnamed)'}</b><br>${type}${tags.website?`<br><a href="${tags.website}" target="_blank" rel="noopener">website</a>`:''}`).addTo(amenityLayers[type]);
+        added++;
+      }
+      status.textContent = `Amenities: ${added}/${elements.length}`;
+      if(i < elements.length) requestAnimationFrame(addChunk); else status.textContent = `Amenities: ${added} shown`;
+    }
+    requestAnimationFrame(addChunk);
+  } catch(err){ status.textContent='Amenities: failed'; alert('Amenity search failed. Try zooming in or trying again later.'); }
+}
+document.getElementById('amenityBtn').addEventListener('click', loadAmenities);
+document.getElementById('clearAmenitiesBtn').addEventListener('click', clearAmenities);
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const text = stages.map(s=>`Stage ${s.id}: ${s.from} → ${s.to} (${s.km} km)\nDone: ${data[`done-${s.id}`]?'yes':'no'}\n${data[`note-${s.id}`]||''}\n`).join('\n---\n');
+  const blob = new Blob([text], {type:'text/plain'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='eurovelo17-diary.txt'; a.click(); URL.revokeObjectURL(a.href);
+});
+document.getElementById('resetBtn').addEventListener('click', ()=>{ if(confirm('Clear all ticks and diary notes?')){ data={}; save(); renderStages(); } });
+renderStages();
+</script>
+</body>
+</html>
